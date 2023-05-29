@@ -1,0 +1,10 @@
+{
+  "name": "Volume Boost",
+  "author": "Saumya Banthia",
+  "flags": [],
+  "publish": {
+    "tags": ["volume", "boost", "audio", "sound", "loud", "booster"],
+    "description": "A Decky plugin to boost volume.",
+    "image": "https://i.imgur.com/ZjrklGh.png"
+  }
+}
