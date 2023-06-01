@@ -30,7 +30,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   const saveState = (volume: number) => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ volume }));
   };
-
+  
   const getDefaultSinkVolume = async () => {
     const data = await serverAPI.callPluginMethod<{}, number>("get_volume_state", {});
     if (data.success) {
@@ -40,9 +40,9 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   }
 
   useEffect(() => {
-  getDefaultSinkVolume();
+    getDefaultSinkVolume();
   }, [serverAPI]);
-  
+
   const setDefaultSinkVolume = async(sliderValue: number) => {
     const value = Math.min(Math.max(sliderValue, 0), 150);
     console.log("Setting volume to: " + value);
@@ -50,6 +50,22 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
     if (data.success) {
       getDefaultSinkVolume();
     }
+  }
+
+  // Credits to @Tormak#6639 for this debounce function
+  function debounce(func:Function, wait:number, immediate?:boolean) {
+    let timeout:NodeJS.Timeout|null;
+    return function (this:any) {
+        const context = this, args = arguments;
+        const later = function () {
+            timeout = null;
+            if (!immediate) func.apply(context, args);
+        };
+        const callNow = immediate && !timeout;
+        clearTimeout(timeout as NodeJS.Timeout);
+        timeout = setTimeout(later, wait);
+        if (callNow) func.apply(context, args);
+    };
   }
 
   return (
@@ -60,11 +76,13 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
             min={0}
             max={150}
             step={1}
+            notchCount={5}
+            notchTicksVisible={true}
             label='Volume'
             description='Increases volume bounds of Default sound device to 150%'
             editableValue
             icon={<FaVolumeUp />}
-            onChange={setDefaultSinkVolume}
+            onChange={debounce(setDefaultSinkVolume, 250, true)}
           />
         </PanelSectionRow>
         <PanelSectionRow>
