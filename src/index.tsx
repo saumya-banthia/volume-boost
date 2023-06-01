@@ -7,21 +7,41 @@ import {
   SliderField,
 } from "decky-frontend-lib";
 import { VFC,
-         useState 
+         useState,
+         useEffect
         } from "react";
 import { IoMdMegaphone } from "react-icons/io";
 import { FaVolumeUp } from 'react-icons/fa';
 
+const LOCAL_STORAGE_KEY = 'volume-boost-state'
+
 const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
-  const [volumeState, setVolumeState] = useState<number>(0);
+  const [volumeState, setVolumeState] = useState<number>(getInitialState());
+
+  function getInitialState() {
+    const settingsString = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!settingsString) {
+      return 0;
+    }
+    const storedSettings = JSON.parse(settingsString);
+    return storedSettings.volume || 0;
+  }
+
+  const saveState = (volume: number) => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ volume }));
+  };
 
   const getDefaultSinkVolume = async () => {
     const data = await serverAPI.callPluginMethod<{}, number>("get_volume_state", {});
     if (data.success) {
       setVolumeState(data.result);
+      saveState(data.result);
     }
   }
+
+  useEffect(() => {
   getDefaultSinkVolume();
+  }, [serverAPI]);
   
   const setDefaultSinkVolume = async(sliderValue: number) => {
     const value = Math.min(Math.max(sliderValue, 0), 150);
