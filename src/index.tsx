@@ -22,12 +22,12 @@ const LEFT_CHANNEL_LABEL_UNSYNCED = 'Left Channel'
 const BOTH_CHANNELS = 'both'
 
 const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
-  const [leftVolumeState, setLeftVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_LEFT, 0));
-  const [rightVolumeState, setRightVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_RIGHT, 0));
+  const [leftVolumeState, setLeftVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_LEFT));
+  const [rightVolumeState, setRightVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_RIGHT));
   const [volumeSyncedState, setVolumeSyncedState] = useState<boolean>(getInitialState(LOCAL_STORAGE_KEY_SYNCED, true, 'switchValue'));
   const [leftChannelLabel, setLeftChannelLabel] = useState<string>(LEFT_CHANNEL_LABEL_SYNCED);
 
-  function getInitialState(key: string, defaultState:any, paramString:string = 'volume') {
+  function getInitialState(key: string, defaultState:any = 0, paramString:string = 'volume') {
     const settingsString = localStorage.getItem(key);
     if (!settingsString) {
       return defaultState;
@@ -68,12 +68,11 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   }, [serverAPI]);
 
   // Set default sink volume, given a channel key and slider value
-  const setDefaultSinkVolumeLeft = async (sliderValue: number) => {
-    const channel = volumeSyncedState ? BOTH_CHANNELS : LOCAL_STORAGE_KEY_LEFT;
+  const setDefaultSinkVolume = async (sliderValue: number, channel: string = BOTH_CHANNELS) => {
     const value = Math.min(Math.max(sliderValue, 0), 150);
     console.log("Setting "+ channel +" channel volume to: " + value);
     const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
-    if (volumeSyncedState) {
+    if (channel === BOTH_CHANNELS) {
       if (data.success) {
         getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
         getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
@@ -85,22 +84,12 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
     }
   }
 
-  const setDefaultSinkVolumeRight = async (sliderValue: number) => {
-    const channel = LOCAL_STORAGE_KEY_RIGHT;
-    const value = Math.min(Math.max(sliderValue, 0), 150);
-    console.log("Setting "+ channel +" channel volume to: " + value);
-    const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
-    if (data.success) {
-      getDefaultSinkVolume(channel);
-    }
-  }
-
   const toggleVolumeSynced = async(switchValue: boolean) => {
     setVolumeSyncedState(switchValue);
     localStorage.setItem(LOCAL_STORAGE_KEY_SYNCED, JSON.stringify({ switchValue }));
     if (switchValue) {
       setLeftChannelLabel(LEFT_CHANNEL_LABEL_SYNCED);
-      setDefaultSinkVolumeRight(leftVolumeState);
+      setDefaultSinkVolume(leftVolumeState, LOCAL_STORAGE_KEY_RIGHT);
     } else {
       setLeftChannelLabel(LEFT_CHANNEL_LABEL_UNSYNCED);
     }
@@ -142,7 +131,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
             description={'Increases volume bounds of Default sound device to 150% (' + (volumeSyncedState ? BOTH_CHANNELS + ' channels': LOCAL_STORAGE_KEY_LEFT + ' channel') + ')'}
             editableValue
             icon={<FaVolumeUp />}
-            onChange={debounce(setDefaultSinkVolumeLeft, 250, true)}
+            onChange={debounce((value: number) => setDefaultSinkVolume(value, volumeSyncedState ? BOTH_CHANNELS: LOCAL_STORAGE_KEY_LEFT), 250, true)}
           />
           <SliderField
             value={rightVolumeState}
@@ -155,7 +144,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
             description='Increases volume bounds of Default sound device to 150% (right channel)'
             editableValue
             icon={<FaVolumeUp />}
-            onChange={debounce(setDefaultSinkVolumeRight, 250, true)}
+            onChange={debounce((value: number) => setDefaultSinkVolume(value, LOCAL_STORAGE_KEY_RIGHT), 250, true)}
             disabled={volumeSyncedState}
           />
         </PanelSectionRow>
