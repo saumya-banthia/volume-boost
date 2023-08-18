@@ -1,6 +1,6 @@
 {
   "name": "volume-boost",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A Decky plugin to boost volume.",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
