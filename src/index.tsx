@@ -72,13 +72,11 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
     const value = Math.min(Math.max(sliderValue, 0), 150);
     console.log("Setting "+ channel +" channel volume to: " + value);
     const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
-    if (channel === BOTH_CHANNELS) {
-      if (data.success) {
+    if (data.success) {
+      if (channel === BOTH_CHANNELS) {
         getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
         getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
-      }
-    } else {      
-      if (data.success) {
+      } else {      
         getDefaultSinkVolume(channel);
       }
     }

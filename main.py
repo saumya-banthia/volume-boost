@@ -27,9 +27,7 @@ class Plugin:
             # logger.debug(f"pactl get-sink-volume: {output}")
             volume_left = int(output.split()[4].strip("%"))
             volume_right = int(output.split()[11].strip("%"))
-            if channel == 'left':
-                return volume_left
-            elif channel == 'right':
+            if channel == 'right':
                 return volume_right
             return volume_left
         except Exception as error:
