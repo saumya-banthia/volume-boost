@@ -5,6 +5,7 @@ import {
   ServerAPI,
   staticClasses,
   SliderField,
+  ToggleField,
 } from "decky-frontend-lib";
 import { VFC,
          useState,
@@ -13,42 +14,95 @@ import { VFC,
 import { IoMdMegaphone } from "react-icons/io";
 import { FaVolumeUp } from 'react-icons/fa';
 
-const LOCAL_STORAGE_KEY = 'volume-boost-state'
+const LOCAL_STORAGE_KEY_LEFT = 'left'
+const LOCAL_STORAGE_KEY_RIGHT = 'right'
+const LOCAL_STORAGE_KEY_SYNCED = 'synced'
+const LEFT_CHANNEL_LABEL_SYNCED = 'Both Channels'
+const LEFT_CHANNEL_LABEL_UNSYNCED = 'Left Channel'
+const BOTH_CHANNELS = 'both'
 
 const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
-  const [volumeState, setVolumeState] = useState<number>(getInitialState());
+  const [leftVolumeState, setLeftVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_LEFT, 0));
+  const [rightVolumeState, setRightVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_RIGHT, 0));
+  const [volumeSyncedState, setVolumeSyncedState] = useState<boolean>(getInitialState(LOCAL_STORAGE_KEY_SYNCED, true, 'switchValue'));
+  const [leftChannelLabel, setLeftChannelLabel] = useState<string>(LEFT_CHANNEL_LABEL_SYNCED);
 
-  function getInitialState() {
-    const settingsString = localStorage.getItem(LOCAL_STORAGE_KEY);
+  function getInitialState(key: string, defaultState:any, paramString:string = 'volume') {
+    const settingsString = localStorage.getItem(key);
     if (!settingsString) {
-      return 0;
+      return defaultState;
     }
     const storedSettings = JSON.parse(settingsString);
-    return storedSettings.volume || 0;
+    return storedSettings[paramString] || defaultState;
   }
 
-  const saveState = (volume: number) => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ volume }));
+  const saveState = (key: string, volume: number) => {
+    localStorage.setItem(key, JSON.stringify({ volume }));
   };
-  
-  const getDefaultSinkVolume = async () => {
-    const data = await serverAPI.callPluginMethod<{}, number>("get_volume_state", {});
+
+  // Get default sink volume, given a channel
+  const getDefaultSinkVolume = async (channel: string = BOTH_CHANNELS) => {
+    const data = await serverAPI.callPluginMethod<{ channel: string }, number>("get_volume_state", { channel });
     if (data.success) {
-      setVolumeState(data.result);
-      saveState(data.result);
+      if (channel === BOTH_CHANNELS) {
+        setRightVolumeState(data.result);
+        setLeftVolumeState(data.result);
+        saveState(LOCAL_STORAGE_KEY_LEFT, data.result);
+        saveState(LOCAL_STORAGE_KEY_RIGHT, data.result);
+      } else {
+        if (channel === LOCAL_STORAGE_KEY_RIGHT) setRightVolumeState(data.result);
+        if (channel === LOCAL_STORAGE_KEY_LEFT) setLeftVolumeState(data.result);
+        saveState(channel, data.result);
+      }
     }
   }
 
   useEffect(() => {
-    getDefaultSinkVolume();
+    const volumeSync = localStorage.getItem(LOCAL_STORAGE_KEY_SYNCED);
+    if (volumeSync) {
+      const { switchValue } = JSON.parse(volumeSync);
+      setVolumeSyncedState(switchValue);
+    }
+    getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
+    getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
   }, [serverAPI]);
 
-  const setDefaultSinkVolume = async(sliderValue: number) => {
+  // Set default sink volume, given a channel key and slider value
+  const setDefaultSinkVolumeLeft = async (sliderValue: number) => {
+    const channel = volumeSyncedState ? BOTH_CHANNELS : LOCAL_STORAGE_KEY_LEFT;
     const value = Math.min(Math.max(sliderValue, 0), 150);
-    console.log("Setting volume to: " + value);
-    const data = await serverAPI.callPluginMethod<{ value: number }, boolean>("set_volume_state", { value })
+    console.log("Setting "+ channel +" channel volume to: " + value);
+    const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
+    if (volumeSyncedState) {
+      if (data.success) {
+        getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
+        getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
+      }
+    } else {      
+      if (data.success) {
+        getDefaultSinkVolume(channel);
+      }
+    }
+  }
+
+  const setDefaultSinkVolumeRight = async (sliderValue: number) => {
+    const channel = LOCAL_STORAGE_KEY_RIGHT;
+    const value = Math.min(Math.max(sliderValue, 0), 150);
+    console.log("Setting "+ channel +" channel volume to: " + value);
+    const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
     if (data.success) {
-      getDefaultSinkVolume();
+      getDefaultSinkVolume(channel);
+    }
+  }
+
+  const toggleVolumeSynced = async(switchValue: boolean) => {
+    setVolumeSyncedState(switchValue);
+    localStorage.setItem(LOCAL_STORAGE_KEY_SYNCED, JSON.stringify({ switchValue }));
+    if (switchValue) {
+      setLeftChannelLabel(LEFT_CHANNEL_LABEL_SYNCED);
+      setDefaultSinkVolumeRight(leftVolumeState);
+    } else {
+      setLeftChannelLabel(LEFT_CHANNEL_LABEL_UNSYNCED);
     }
   }
 
@@ -71,18 +125,38 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   return (
     <PanelSection title="Settings">
         <PanelSectionRow>
+          <ToggleField
+            bottomSeparator='standard'
+            checked={volumeSyncedState}
+            label='Toggle Channel Sync'
+            description='Toggles Channel Sync On or Off'
+            onChange={toggleVolumeSynced} />
           <SliderField
-            value={volumeState}
+            value={leftVolumeState}
             min={0}
             max={150}
             step={1}
             notchCount={5}
             notchTicksVisible={true}
-            label='Volume'
-            description='Increases volume bounds of Default sound device to 150%'
+            label={leftChannelLabel}
+            description={'Increases volume bounds of Default sound device to 150% (' + (volumeSyncedState ? BOTH_CHANNELS + ' channels': LOCAL_STORAGE_KEY_LEFT + ' channel') + ')'}
             editableValue
             icon={<FaVolumeUp />}
-            onChange={debounce(setDefaultSinkVolume, 250, true)}
+            onChange={debounce(setDefaultSinkVolumeLeft, 250, true)}
+          />
+          <SliderField
+            value={rightVolumeState}
+            min={0}
+            max={150}
+            step={1}
+            notchCount={5}
+            notchTicksVisible={true}
+            label={'Right Channel' + (volumeSyncedState ? ' (Channels Synced)' : '')}
+            description='Increases volume bounds of Default sound device to 150% (right channel)'
+            editableValue
+            icon={<FaVolumeUp />}
+            onChange={debounce(setDefaultSinkVolumeRight, 250, true)}
+            disabled={volumeSyncedState}
           />
         </PanelSectionRow>
         <PanelSectionRow>

@@ -1,6 +1,6 @@
 {
   "name": "volume-boost",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A Decky plugin to boost volume.",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
@@ -39,8 +39,8 @@
     "typescript": "^4.7.4"
   },
   "dependencies": {
-    "decky-frontend-lib": "^3.21.1",
-    "pnpm": "^8.5.1",
+    "decky-frontend-lib": "^3.22.0",
+    "pnpm": "^8.6.12",
     "react-icons": "^4.4.0"
   },
   "pnpm": {
