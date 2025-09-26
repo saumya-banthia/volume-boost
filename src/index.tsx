@@ -1,3 +1,4 @@
+import { VFC, useState, useEffect, useCallback, useMemo } from "react";
 import {
   definePlugin,
   PanelSection,
@@ -6,153 +7,204 @@ import {
   staticClasses,
   SliderField,
   ToggleField,
-} from "decky-frontend-lib";
-import { VFC,
-         useState,
-         useEffect
-        } from "react";
+  } from "decky-frontend-lib";
 import { IoMdMegaphone } from "react-icons/io";
 import { FaVolumeUp } from 'react-icons/fa';
 
-const LOCAL_STORAGE_KEY_LEFT = 'left'
-const LOCAL_STORAGE_KEY_RIGHT = 'right'
-const LOCAL_STORAGE_KEY_SYNCED = 'synced'
-const LEFT_CHANNEL_LABEL_SYNCED = 'Both Channels'
-const LEFT_CHANNEL_LABEL_UNSYNCED = 'Left Channel'
-const BOTH_CHANNELS = 'both'
+
+// --- Constants and Helpers moved outside the component ---
+
+const LOCAL_STORAGE_KEY_LEFT = 'left';
+const LOCAL_STORAGE_KEY_RIGHT = 'right';
+const LOCAL_STORAGE_KEY_SYNCED = 'synced';
+const LEFT_CHANNEL_LABEL_SYNCED = 'Both Channels';
+const LEFT_CHANNEL_LABEL_UNSYNCED = 'Left Channel';
+const RIGHT_CHANNEL_LABEL = 'Right Channel';
+const BOTH_CHANNELS = 'both';
+
+/**
+ * Helper to get initial state from localStorage.
+ * It's generic and includes error handling for malformed JSON.
+ */
+function getInitialState<T>(key: string, defaultValue: T, property: string): T {
+  const settingsString = localStorage.getItem(key);
+  if (!settingsString) {
+    return defaultValue;
+  }
+  try {
+    const storedSettings = JSON.parse(settingsString);
+    // Use nullish coalescing operator for safer check
+    return storedSettings[property] ?? defaultValue;
+  } catch {
+    // If JSON is malformed, return the default value
+    return defaultValue;
+  }
+}
+
+/**
+ * Helper to save state to localStorage.
+ */
+function saveState<T>(key:string, value: T, property: string) {
+  localStorage.setItem(key, JSON.stringify({ [property]: value }));
+};
+
+// --- Main Component ---
 
 const Content: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
-  const [leftVolumeState, setLeftVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_LEFT));
-  const [rightVolumeState, setRightVolumeState] = useState<number>(getInitialState(LOCAL_STORAGE_KEY_RIGHT));
-  const [volumeSyncedState, setVolumeSyncedState] = useState<boolean>(getInitialState(LOCAL_STORAGE_KEY_SYNCED, true, 'switchValue'));
-  const [leftChannelLabel, setLeftChannelLabel] = useState<string>(LEFT_CHANNEL_LABEL_SYNCED);
+  // --- State Declarations ---
+  // Use functional update to ensure localStorage is read only once
+  const [leftVolume, setLeftVolume] = useState<number>(() => getInitialState(LOCAL_STORAGE_KEY_LEFT, 100, 'volume'));
+  const [rightVolume, setRightVolume] = useState<number>(() => getInitialState(LOCAL_STORAGE_KEY_RIGHT, 100, 'volume'));
+  const [isSynced, setIsSynced] = useState<boolean>(() => getInitialState(LOCAL_STORAGE_KEY_SYNCED, true, 'switchValue'));
 
-  function getInitialState(key: string, defaultState:any = 0, paramString:string = 'volume') {
-    const settingsString = localStorage.getItem(key);
-    if (!settingsString) {
-      return defaultState;
+  // --- API Interaction Logic ---
+
+  // Fetches a single channel's volume from the backend
+  const getSystemVolume = useCallback(async (channel: string): Promise<number | null> => {
+    const res = await serverAPI.callPluginMethod<{ channel: string }, number>("get_volume_state", { channel });
+    if (res.success) {
+        return res.result;
     }
-    const storedSettings = JSON.parse(settingsString);
-    return storedSettings[paramString] || defaultState;
-  }
-
-  const saveState = (key: string, volume: number) => {
-    localStorage.setItem(key, JSON.stringify({ volume }));
-  };
-
-  // Get default sink volume, given a channel
-  const getDefaultSinkVolume = async (channel: string = BOTH_CHANNELS) => {
-    const data = await serverAPI.callPluginMethod<{ channel: string }, number>("get_volume_state", { channel });
-    if (data.success) {
-      if (channel === BOTH_CHANNELS) {
-        setRightVolumeState(data.result);
-        setLeftVolumeState(data.result);
-        saveState(LOCAL_STORAGE_KEY_LEFT, data.result);
-        saveState(LOCAL_STORAGE_KEY_RIGHT, data.result);
-      } else {
-        if (channel === LOCAL_STORAGE_KEY_RIGHT) setRightVolumeState(data.result);
-        if (channel === LOCAL_STORAGE_KEY_LEFT) setLeftVolumeState(data.result);
-        saveState(channel, data.result);
-      }
-    }
-  }
-
-  useEffect(() => {
-    const volumeSync = localStorage.getItem(LOCAL_STORAGE_KEY_SYNCED);
-    if (volumeSync) {
-      const { switchValue } = JSON.parse(volumeSync);
-      setVolumeSyncedState(switchValue);
-    }
-    getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
-    getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
+    console.error(`Failed to get volume for channel: ${channel}`);
+    return null;
   }, [serverAPI]);
 
-  // Set default sink volume, given a channel key and slider value
-  const setDefaultSinkVolume = async (sliderValue: number, channel: string = BOTH_CHANNELS) => {
-    const value = Math.min(Math.max(sliderValue, 0), 150);
-    console.log("Setting "+ channel +" channel volume to: " + value);
-    const data = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>("set_volume_state", { value, channel })
-    if (data.success) {
-      if (channel === BOTH_CHANNELS) {
-        getDefaultSinkVolume(LOCAL_STORAGE_KEY_LEFT);
-        getDefaultSinkVolume(LOCAL_STORAGE_KEY_RIGHT);
-      } else {      
-        getDefaultSinkVolume(channel);
+  // Sets system volume via the backend
+  const setSystemVolume = useCallback(async (value: number, channel: string) => {
+    const clampedValue = Math.min(Math.max(value, 0), 150);
+    
+    const res = await serverAPI.callPluginMethod<{ value: number, channel: string }, boolean>(
+      "set_volume_state", 
+      { value: clampedValue, channel }
+    );
+
+    if (res.success) {
+      // Update UI state directly for a snappier response
+      if (channel === BOTH_CHANNELS || channel === LOCAL_STORAGE_KEY_LEFT) {
+        setLeftVolume(clampedValue);
+        saveState(LOCAL_STORAGE_KEY_LEFT, clampedValue, 'volume');
       }
-    }
-  }
-
-  const toggleVolumeSynced = async(switchValue: boolean) => {
-    setVolumeSyncedState(switchValue);
-    localStorage.setItem(LOCAL_STORAGE_KEY_SYNCED, JSON.stringify({ switchValue }));
-    if (switchValue) {
-      setLeftChannelLabel(LEFT_CHANNEL_LABEL_SYNCED);
-      setDefaultSinkVolume(leftVolumeState, LOCAL_STORAGE_KEY_RIGHT);
+      if (channel === BOTH_CHANNELS || channel === LOCAL_STORAGE_KEY_RIGHT) {
+        setRightVolume(clampedValue);
+        saveState(LOCAL_STORAGE_KEY_RIGHT, clampedValue, 'volume');
+      }
     } else {
-      setLeftChannelLabel(LEFT_CHANNEL_LABEL_UNSYNCED);
+        // If the call fails, refresh the state from the backend to ensure UI is accurate
+        console.error(`Failed to set volume for channel: ${channel}. Re-fetching state.`);
+        getSystemVolume(LOCAL_STORAGE_KEY_LEFT).then(vol => vol !== null && setLeftVolume(vol));
+        getSystemVolume(LOCAL_STORAGE_KEY_RIGHT).then(vol => vol !== null && setRightVolume(vol));
     }
-  }
+  }, [serverAPI, getSystemVolume]);
 
-  // Credits to @Tormak#6639 for this debounce function
-  function debounce(func:Function, wait:number, immediate?:boolean) {
-    let timeout:NodeJS.Timeout|null;
-    return function (this:any) {
-        const context = this, args = arguments;
-        const later = function () {
-            timeout = null;
-            if (!immediate) func.apply(context, args);
-        };
-        const callNow = immediate && !timeout;
-        clearTimeout(timeout as NodeJS.Timeout);
-        timeout = setTimeout(later, wait);
-        if (callNow) func.apply(context, args);
+
+  // --- Effects ---
+
+  // Effect to fetch initial volume states from the backend on mount
+  useEffect(() => {
+    getSystemVolume(LOCAL_STORAGE_KEY_LEFT).then(vol => {
+        if (vol !== null) {
+            setLeftVolume(vol);
+            // If synced, ensure the right channel matches upon loading
+            if (isSynced) {
+              setRightVolume(vol);
+            }
+        }
+    });
+    // Only fetch right volume separately if not synced
+    if (!isSynced) {
+        getSystemVolume(LOCAL_STORAGE_KEY_RIGHT).then(vol => vol !== null && setRightVolume(vol));
+    }
+  }, [serverAPI, getSystemVolume]); // Intentionally exclude `isSynced` to run only once on mount
+
+  
+  // --- Event Handlers ---
+
+  // Handles the sync toggle switch
+  const handleSyncToggle = useCallback((synced: boolean) => {
+    setIsSynced(synced);
+    saveState(LOCAL_STORAGE_KEY_SYNCED, synced, 'switchValue');
+    // If channels are now synced, match the right volume to the left
+    if (synced) {
+      setRightVolume(leftVolume);
+      // Update the backend. We only need to tell it to set the right channel.
+      setSystemVolume(leftVolume, LOCAL_STORAGE_KEY_RIGHT);
+    }
+  }, [leftVolume, setSystemVolume]);
+  
+  // Debounced version of setSystemVolume to avoid spamming the backend
+  const debouncedSetSystemVolume = useMemo(() => {
+    let timeout: NodeJS.Timeout | null;
+    return (value: number, channel: string) => {
+      clearTimeout(timeout as NodeJS.Timeout);
+      timeout = setTimeout(() => {
+        setSystemVolume(value, channel);
+      }, 200); // 200ms delay is a good balance for sliders
     };
-  }
+  }, [setSystemVolume]);
+  
+  const handleLeftSliderChange = (value: number) => {
+    // Update the UI immediately for responsiveness
+    setLeftVolume(value);
+    if (isSynced) {
+      setRightVolume(value);
+    }
+    // Call the debounced function to update the backend
+    debouncedSetSystemVolume(value, isSynced ? BOTH_CHANNELS : LOCAL_STORAGE_KEY_LEFT);
+  };
+  
+  const handleRightSliderChange = (value: number) => {
+    setRightVolume(value);
+    debouncedSetSystemVolume(value, LOCAL_STORAGE_KEY_RIGHT);
+  };
+
+  // --- Render Logic ---
+  const leftChannelLabel = isSynced ? LEFT_CHANNEL_LABEL_SYNCED : LEFT_CHANNEL_LABEL_UNSYNCED;
 
   return (
     <PanelSection title="Settings">
         <PanelSectionRow>
           <ToggleField
             bottomSeparator='standard'
-            checked={volumeSyncedState}
-            label='Toggle Channel Sync'
-            description='Toggles Channel Sync On or Off'
-            onChange={toggleVolumeSynced} />
+            checked={isSynced}
+            label='Sync Channels'
+            description='Link the left and right channel sliders'
+            onChange={handleSyncToggle} 
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
           <SliderField
-            value={leftVolumeState}
+            value={leftVolume}
             min={0}
             max={150}
             step={1}
             notchCount={5}
             notchTicksVisible={true}
             label={leftChannelLabel}
-            description={'Increases volume bounds of Default sound device to 150% (' + (volumeSyncedState ? BOTH_CHANNELS + ' channels': LOCAL_STORAGE_KEY_LEFT + ' channel') + ')'}
+            description={`Adjust volume for ${isSynced ? 'both channels' : 'the left channel'}`}
             editableValue
             icon={<FaVolumeUp />}
-            onChange={debounce((value: number) => setDefaultSinkVolume(value, volumeSyncedState ? BOTH_CHANNELS: LOCAL_STORAGE_KEY_LEFT), 250, true)}
+            onChange={handleLeftSliderChange}
           />
+        </PanelSectionRow>
+        <PanelSectionRow>
           <SliderField
-            value={rightVolumeState}
+            value={rightVolume}
             min={0}
             max={150}
             step={1}
             notchCount={5}
             notchTicksVisible={true}
-            label={'Right Channel' + (volumeSyncedState ? ' (Channels Synced)' : '')}
-            description='Increases volume bounds of Default sound device to 150% (right channel)'
+            label={RIGHT_CHANNEL_LABEL}
+            description='Adjust volume for the right channel'
             editableValue
             icon={<FaVolumeUp />}
-            onChange={debounce((value: number) => setDefaultSinkVolume(value, LOCAL_STORAGE_KEY_RIGHT), 250, true)}
-            disabled={volumeSyncedState}
+            onChange={handleRightSliderChange}
+            disabled={isSynced}
           />
         </PanelSectionRow>
         <PanelSectionRow>
-          <div>
-            Note: It's recommended to not increase volume above 100%, 
-            as it may cause distortion and damage to your speakers. 
-            If you do increase the volume above 100% temporarily, 
-            it's recommended to restore the volume to or below 100% when not in use. 
-            Use at your own risk.
+          <div style={{color: '#8a9da6', fontSize: '0.9em', lineHeight: '1.2em'}}>
+            Note: Increasing volume above 100% may cause audio distortion or damage your speakers. Use at your own risk.
           </div>
         </PanelSectionRow>
     </PanelSection>
