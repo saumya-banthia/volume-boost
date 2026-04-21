@@ -31,8 +31,7 @@ bower_components
 .DS_Store
 Thumbs.db
 
-# Ignore built ts files
-dist/
+# dist/ is tracked so the Decky Loader plugin store can distribute the built output
 
 __pycache__/
 
